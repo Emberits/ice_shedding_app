@@ -41,6 +41,12 @@ def shedding_potential(temp_change, precipitation, wind_speed):
     total = base + temp_factor + precip_factor + wind_factor
     return min(round(total, 2), 1.0)
 
+# Физическая модель подскока провода
+def compute_wire_bounce(ice_thickness, wire_diameter, span_length):
+    # Упрощённый расчёт амплитуды подскока (м)
+    bounce = 0.02 * ice_thickness * wire_diameter * (span_length / 100)
+    return round(bounce, 2)
+
 # Кнопка прогноза
 if st.button("📊 Прогноз"):
     # Расчеты
@@ -65,6 +71,10 @@ if st.button("📊 Прогноз"):
     ml_prob = model.predict_proba(input_data)[0][1]  # Вероятность сброса
     ml_risk = "Высокий" if ml_prob > 0.7 else "Средний" if ml_prob > 0.4 else "Низкий"
     
+    # Расчёт амплитуды подскока
+    bounce = compute_wire_bounce(ice_thickness, wire_diameter, span_length)
+    bounce_risk = "Высокий" if bounce > 1.0 else "Средний" if bounce > 0.5 else "Низкий"
+    
     # Комбинированный индекс риска
     combined_risk = (ml_prob + shedding_prob) / 2
     combined_risk_label = "Высокий" if combined_risk > 0.7 else "Средний" if combined_risk > 0.4 else "Низкий"
@@ -78,4 +88,6 @@ if st.button("📊 Прогноз"):
     
     st.info(f"🔄 Потенциал сброса: {shedding_prob * 100:.0f}%")
     st.warning(f"🤖 Модель ML: {ml_risk} риск сброса ({ml_prob * 100:.0f}%)")
+    st.success(f"📉 Амплитуда подскока: {bounce} м")
+    st.error(f"⚠️ Риск КЗ: {bounce_risk}")
     st.success(f"📊 Комбинированный риск: {combined_risk_label}")
