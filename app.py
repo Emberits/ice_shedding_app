@@ -1,6 +1,14 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import joblib
+
+# Загрузка модели
+@st.cache_resource
+def load_model():
+    return joblib.load("model.pkl")
+
+model = load_model()
 
 # Настройки страницы
 st.set_page_config(page_title="Прогноз подскока провода", layout="centered")
@@ -41,23 +49,33 @@ if st.button("📊 Прогноз"):
     
     shedding_prob = shedding_potential(temp_change_last_6h, precipitation, wind_speed)
     
+    # Подготовка данных для модели ML
+    input_data = pd.DataFrame({
+        "temperature": [temperature],
+        "wind_speed": [wind_speed],
+        "humidity": [humidity],
+        "ice_thickness": [ice_thickness],
+        "temp_change_last_6h": [temp_change_last_6h],
+        "precipitation": [precipitation],
+        "wire_diameter": [wire_diameter],
+        "span_length": [span_length]
+    })
+    
+    # Прогноз модели ML
+    ml_prob = model.predict_proba(input_data)[0][1]  # Вероятность сброса
+    ml_risk = "Высокий" if ml_prob > 0.7 else "Средний" if ml_prob > 0.4 else "Низкий"
+    
+    # Комбинированный индекс риска
+    combined_risk = (ml_prob + shedding_prob) / 2
+    combined_risk_label = "Высокий" if combined_risk > 0.7 else "Средний" if combined_risk > 0.4 else "Низкий"
+    
     # Визуализация
     st.success(f"✅ Оценённая толщина льда: {ice_thickness} мм")
     
     # Безопасное значение для прогресс-бара
     progress_value = min(max(int(ice_thickness * 5), 0), 100)
     st.progress(progress_value)
-
+    
     st.info(f"🔄 Потенциал сброса: {shedding_prob * 100:.0f}%")
-    if shedding_prob > 0.7:
-        st.warning("⚠️ Высокий риск сброса!")
-    elif shedding_prob > 0.4:
-        st.warning("⚠️ Средний риск сброса.")
-    else:
-        st.success("✅ Низкий риск сброса.")
-else:
-    st.info("ℹ️ Введите параметры и нажмите **Прогноз**.")
-
-# Подвал
-st.markdown("---")
-st.markdown("© 2025 | Энергетическая безопасность")
+    st.warning(f"🤖 Модель ML: {ml_risk} риск сброса ({ml_prob * 100:.0f}%)")
+    st.success(f"📊 Комбинированный риск: {combined_risk_label}")
