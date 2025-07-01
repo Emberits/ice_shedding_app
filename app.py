@@ -65,8 +65,13 @@ if st.button("📊 Прогноз"):
     })
     
     # Прогноз модели ML
-    ml_prob = model.predict_proba(input_data)[0][1]  # Вероятность сброса
-    ml_risk = "Высокий" if ml_prob > 0.7 else "Средний" if ml_prob > 0.4 else "Низкий"
+    try:
+        ml_prob = model.predict_proba(input_data)[0][1]  # Вероятность сброса
+        ml_risk = "Высокий" if ml_prob > 0.7 else "Средний" if ml_prob > 0.4 else "Низкий"
+    except Exception as e:
+        st.error("⚠️ Ошибка модели ML. Проверьте данные и модель.")
+        ml_prob = 0.0
+        ml_risk = "Неизвестно"
     
     # Расчёт амплитуды подскока
     bounce = compute_wire_bounce(ice_thickness, wire_diameter, span_length)
@@ -77,6 +82,11 @@ if st.button("📊 Прогноз"):
     
     # Визуализация
     st.success(f"✅ Оценённая толщина льда: {ice_thickness} мм")
+    
+    # Безопасное значение для прогресс-бара
+    progress_value = min(max(int(ice_thickness * 5), 0), 100)
+    st.progress(progress_value)
+    
     st.info(f"🔄 Вероятность сброса: {ml_prob * 100:.0f}%")
     st.warning(f"⚠️ Риск сброса: {ml_risk}")
     st.success(f"📉 Амплитуда подскока: {bounce} м")
