@@ -4,3 +4,5 @@ numpy
 joblib
 scikit-learn
 imbalanced-learn
+folium
+streamlit-folium
