@@ -37,15 +37,17 @@ def shedding_potential(temp_change, precipitation, wind_speed):
 if st.button("📊 Прогноз"):
     # Расчеты
     ice_thickness = estimate_ice_thickness(temperature, humidity, wind_speed)
+    ice_thickness = max(ice_thickness, 0)  # Защита от отрицательных значений
+    
     shedding_prob = shedding_potential(temp_change_last_6h, precipitation, wind_speed)
     
     # Визуализация
     st.success(f"✅ Оценённая толщина льда: {ice_thickness} мм")
     
     # Безопасное значение для прогресс-бара
-    progress_value = min(int(ice_thickness * 5), 100)
+    progress_value = min(max(int(ice_thickness * 5), 0), 100)
     st.progress(progress_value)
-    
+
     st.info(f"🔄 Потенциал сброса: {shedding_prob * 100:.0f}%")
     if shedding_prob > 0.7:
         st.warning("⚠️ Высокий риск сброса!")
