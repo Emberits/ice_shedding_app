@@ -1,11 +1,10 @@
-# app.py (обновлённый код)
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
 import folium
 import streamlit_folium as st_folium  # Обновленный импорт
-from streamlit_folium import folium_static  # Для обратной совместимости
+import requests
 
 # Загрузка модели
 @st.cache_resource
@@ -41,13 +40,12 @@ def get_weather_data(city, api_key):
 
 # Функция оценки толщины льда
 def estimate_ice_thickness(temp, humidity, wind_speed, cloudiness):
-    # Расчёт по формуле из статьи VTT (Makkonen, 2013)
-    es = 610.78 * np.exp((21.87 * temp) / (temp + 265.5))
-    ea = 610.78 * np.exp((21.87 * (temp + 2)) / (temp + 265.5)) * humidity / 100
-    h = 0.024 * 10  # Упрощённый коэффициент теплообмена
+    es = 610.78 * np.exp((21.87 * temp) / (temp + 265.5))  # Давление пара над льдом
+    ea = 610.78 * np.exp((21.87 * (temp + 2)) / (temp + 265.5)) * humidity / 100  # Давление пара в воздухе
     cp = 1005  # Удельная теплоёмкость воздуха
     pa = 101325  # Атмосферное давление
-    I = h * (es - ea) * 0.62 / (cp * pa)
+    h = 0.024 * 10  # Упрощённый коэффициент теплообмена
+    I = h * (es - ea) * 0.62 / (cp * pa)  # Скорость образования льда
     ice_thickness = max(I * 3600, 0)  # За 1 час
     return round(ice_thickness, 2)
 
@@ -123,7 +121,7 @@ if "weather" in st.session_state:
     st.info(f"🔄 Вероятность сброса: {ml_prob * 100:.0f}%")
     st.warning(f"⚠️ Риск сброса: {ml_risk}")
     st.success(f"📉 Амплитуда подскока: {bounce} м")
-    st.error(f"⚠️ Риск КЗ: {bounce_risk}")
+    st.error(f"⚠️ Риск короткого замыкания: {bounce_risk}")
     st.success(f"📊 Комбинированный риск: {combined_risk}")
 
 # Визуализация карты рисков
@@ -131,13 +129,16 @@ st.markdown("### 🌍 Уровень риска по участкам ЛЭП")
 try:
     segments = pd.read_csv("segments.csv")
     m = folium.Map(location=[55.75, 37.62], zoom_start=5)
+
     for _, row in segments.iterrows():
         name = row['name']
         lat = row['lat']
         lon = row['lon']
         risk = row['risk']
+
         color = 'red' if risk == 'Высокий' else 'orange' if risk == 'Средний' else 'green'
         folium.Marker([lat, lon], popup=name, icon=folium.Icon(color=color)).add_to(m)
+
     st_folium.folium_static(m)  # Использование st_folium
 except Exception as e:
-    st.error(f"⚠️ Ошибка загрузки данных о участках ЛЭП. Проверьте файл `segments.csv`.")
+    st.error("⚠️ Ошибка загрузки данных о участках ЛЭП. Проверьте файл `segments.csv`.")
