@@ -1,10 +1,11 @@
+# app.py (обновлённый код)
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
 import folium
-from streamlit_folium import folium_static
-import requests
+import streamlit_folium as st_folium  # Обновленный импорт
+from streamlit_folium import folium_static  # Для обратной совместимости
 
 # Загрузка модели
 @st.cache_resource
@@ -38,16 +39,15 @@ def get_weather_data(city, api_key):
         st.error(f"⚠️ Не удалось получить данные: {e}")
         return None
 
-# Функция оценки толщины льда (из статьи VTT)
+# Функция оценки толщины льда
 def estimate_ice_thickness(temp, humidity, wind_speed, cloudiness):
-    # Коэффициенты из статьи Makkonen (2013)
-    es = 610.78 * np.exp((21.87 * temp) / (temp + 265.5))  # Давление пара над льдом
-    ea = 610.78 * np.exp((21.87 * (temp + 2)) / (temp + 265.5)) * humidity / 100  # Давление пара в воздухе
+    # Расчёт по формуле из статьи VTT (Makkonen, 2013)
+    es = 610.78 * np.exp((21.87 * temp) / (temp + 265.5))
+    ea = 610.78 * np.exp((21.87 * (temp + 2)) / (temp + 265.5)) * humidity / 100
+    h = 0.024 * 10  # Упрощённый коэффициент теплообмена
     cp = 1005  # Удельная теплоёмкость воздуха
     pa = 101325  # Атмосферное давление
-    
-    h = 0.024 * 10  # Упрощённый коэффициент теплообмена
-    I = h * (es - ea) * 0.62 / (cp * pa)  # Скорость образования льда
+    I = h * (es - ea) * 0.62 / (cp * pa)
     ice_thickness = max(I * 3600, 0)  # За 1 час
     return round(ice_thickness, 2)
 
@@ -138,6 +138,6 @@ try:
         risk = row['risk']
         color = 'red' if risk == 'Высокий' else 'orange' if risk == 'Средний' else 'green'
         folium.Marker([lat, lon], popup=name, icon=folium.Icon(color=color)).add_to(m)
-    folium_static(m)
+    st_folium.folium_static(m)  # Использование st_folium
 except Exception as e:
-    st.error("⚠️ Ошибка загрузки данных о участках ЛЭП. Проверьте файл `segments.csv`.")
+    st.error(f"⚠️ Ошибка загрузки данных о участках ЛЭП. Проверьте файл `segments.csv`.")
