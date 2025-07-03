@@ -2,8 +2,7 @@ streamlit
 pandas
 numpy
 joblib
-scikit-learn==1.6.1
-imbalanced-learn
+scikit-learn==1.6.1  # Зафиксированная версия для совместимости
 folium
-streamlit-folium
+streamlit-folium==0.25.0
 requests
