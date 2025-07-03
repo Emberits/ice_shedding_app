@@ -4,6 +4,7 @@ import numpy as np
 import joblib
 import folium
 from streamlit_folium import folium_static
+import requests
 
 # Загрузка модели
 @st.cache_resource
@@ -12,68 +13,106 @@ def load_model():
 
 model = load_model()
 
-# Загрузка данных об участках ЛЭП
-@st.cache_data
-def load_segments():
-    return pd.read_csv("segments.csv")
+# Функция получения метеоданных
+def get_weather_data(city, api_key):
+    base_url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={api_key}"
+    try:
+        response = requests.get(base_url)
+        response.raise_for_status()
+        data = response.json()
+        
+        temperature = data["main"]["temp"] - 273.15  # Кельвины → °C
+        humidity = data["main"]["humidity"]
+        wind_speed = data["wind"]["speed"]
+        cloudiness = data.get("clouds", {}).get("all", 0)
+        precipitation = data.get("rain", {}).get("1h", 0)
+        
+        return {
+            "temperature": round(temperature, 2),
+            "humidity": humidity,
+            "wind_speed": wind_speed,
+            "precipitation": precipitation,
+            "cloudiness": cloudiness
+        }
+    except Exception as e:
+        st.error(f"⚠️ Не удалось получить данные: {e}")
+        return None
 
-segments = load_segments()
-
-# Настройки страницы
-st.set_page_config(page_title="Карта рисков ЛЭП", layout="wide")
-
-# Заголовок и описание
-st.title("🗺️ Карта рисков ЛЭП")
-st.markdown("Карта отображает участки воздушных линий электропередачи с уровнем риска залпового сброса льда.")
-
-# Поля ввода
-temperature = st.number_input("🌡️ Температура (°C)", value=-5.0, step=0.1)
-wind_speed = st.number_input("🌬️ Скорость ветра (м/с)", value=10.0, step=0.1)
-humidity = st.number_input("💧 Влажность (%)", value=85, step=1)
-wire_diameter = st.number_input("📏 Диаметр провода (мм)", value=12.7, step=0.1)
-span_length = st.number_input("📐 Длина пролёта (м)", value=300, step=1)
-temp_change_last_6h = st.number_input("📈 Перепад температуры за 6 ч (°C)", value=2.0, step=0.1)
-precipitation = st.number_input("🌧️ Осадки за 6 ч (мм)", value=0.5, step=0.1)
-
-# Функция оценки толщины льда
-def estimate_ice_thickness(temp, humidity, wind_speed, hours=24):
-    k = 0.05  # Эмпирический коэффициент
-    ice_thickness = k * wind_speed * humidity * (1 - abs(temp)/10) * (hours/24)
+# Функция оценки толщины льда (из статьи VTT)
+def estimate_ice_thickness(temp, humidity, wind_speed, cloudiness):
+    # Коэффициенты из статьи Makkonen (2013)
+    es = 610.78 * np.exp((21.87 * temp) / (temp + 265.5))  # Давление пара над льдом
+    ea = 610.78 * np.exp((21.87 * (temp + 2)) / (temp + 265.5)) * humidity / 100  # Давление пара в воздухе
+    cp = 1005  # Удельная теплоёмкость воздуха
+    pa = 101325  # Атмосферное давление
+    
+    h = 0.024 * 10  # Упрощённый коэффициент теплообмена
+    I = h * (es - ea) * 0.62 / (cp * pa)  # Скорость образования льда
+    ice_thickness = max(I * 3600, 0)  # За 1 час
     return round(ice_thickness, 2)
 
-# Физическая модель подскока провода
+# Функция расчёта подскока провода
 def compute_wire_bounce(ice_thickness, wire_diameter, span_length):
     bounce = 0.02 * ice_thickness * wire_diameter * (span_length / 100)
-    return round(bounce, 2)
+    bounce -= wind_speed * 0.05  # Демпфирование
+    return max(round(bounce, 2), 0)
 
-# Кнопка прогноза
-if st.button("📊 Прогноз"):
-    # Расчеты
-    ice_thickness = estimate_ice_thickness(temperature, humidity, wind_speed)
-    ice_thickness = max(ice_thickness, 0)  # Защита от отрицательных значений
+# Настройки страницы
+st.set_page_config(page_title="Прогноз подскока провода", layout="centered")
+st.title("🔮 Прогноз подскока провода при залповом сбросе льда")
+
+# Поля ввода
+city = st.text_input("🏙️ Город", value="Moscow")
+api_key = st.text_input("🔑 OpenWeatherMap API Key", type="password")
+wire_diameter = st.number_input("📏 Диаметр провода (мм)", value=12.7, step=0.1)
+span_length = st.number_input("📐 Длина пролёта (м)", value=300, step=1)
+
+if st.button("🔄 Получить метеоданные"):
+    if not api_key:
+        st.error("⚠️ Введите API-ключ")
+    else:
+        weather = get_weather_data(city, api_key)
+        if weather:
+            # Сохранение данных в сессию
+            st.session_state.weather = weather
+            st.success("✅ Данные получены")
+            st.json(weather)
+
+if "weather" in st.session_state:
+    weather = st.session_state.weather
+    temperature = weather["temperature"]
+    wind_speed = weather["wind_speed"]
+    humidity = weather["humidity"]
+    precipitation = weather["precipitation"]
+    cloudiness = weather["cloudiness"]
     
-    # Подготовка данных для модели ML
+    # Расчёт толщины льда
+    ice_thickness = estimate_ice_thickness(temperature, humidity, wind_speed, cloudiness)
+    progress_value = min(max(int(ice_thickness * 5), 0), 100)
+    st.success(f"✅ Оценённая толщина льда: {ice_thickness} мм")
+    st.progress(progress_value)
+    
+    # Подготовка данных для ML
     input_data = pd.DataFrame({
         "temperature": [temperature],
         "wind_speed": [wind_speed],
         "humidity": [humidity],
         "ice_thickness": [ice_thickness],
-        "temp_change_last_6h": [temp_change_last_6h],
         "precipitation": [precipitation],
+        "cloudiness": [cloudiness],
         "wire_diameter": [wire_diameter],
         "span_length": [span_length]
     })
     
     # Прогноз модели ML
     try:
-        ml_prob = model.predict_proba(input_data)[0][1]  # Вероятность сброса
+        ml_prob = model.predict_proba(input_data)[0][1]
         ml_risk = "Высокий" if ml_prob > 0.7 else "Средний" if ml_prob > 0.4 else "Низкий"
-    except Exception as e:
-        st.error("⚠️ Ошибка модели ML. Проверьте данные и модель.")
+    except Exception:
         ml_prob = 0.0
         ml_risk = "Неизвестно"
     
-    # Расчёт амплитуды подскока
+    # Расчёт подскока провода
     bounce = compute_wire_bounce(ice_thickness, wire_diameter, span_length)
     bounce_risk = "Высокий" if bounce > 1.0 else "Средний" if bounce > 0.5 else "Низкий"
     
@@ -81,43 +120,24 @@ if st.button("📊 Прогноз"):
     combined_risk = "Высокий" if ml_risk == "Высокий" or bounce_risk == "Высокий" else "Средний" if ml_risk == "Средний" or bounce_risk == "Средний" else "Низкий"
     
     # Визуализация
-    st.success(f"✅ Оценённая толщина льда: {ice_thickness} мм")
-    
-    # Безопасное значение для прогресс-бара
-    progress_value = min(max(int(ice_thickness * 5), 0), 100)
-    st.progress(progress_value)
-    
     st.info(f"🔄 Вероятность сброса: {ml_prob * 100:.0f}%")
     st.warning(f"⚠️ Риск сброса: {ml_risk}")
     st.success(f"📉 Амплитуда подскока: {bounce} м")
-    st.error(f"⚠️ Риск короткого замыкания: {bounce_risk}")
+    st.error(f"⚠️ Риск КЗ: {bounce_risk}")
     st.success(f"📊 Комбинированный риск: {combined_risk}")
 
 # Визуализация карты рисков
 st.markdown("### 🌍 Уровень риска по участкам ЛЭП")
 try:
+    segments = pd.read_csv("segments.csv")
     m = folium.Map(location=[55.75, 37.62], zoom_start=5)
-
     for _, row in segments.iterrows():
         name = row['name']
         lat = row['lat']
         lon = row['lon']
         risk = row['risk']
-
-        # Цвет маркера в зависимости от риска
-        if risk == 'Высокий':
-            color = 'red'
-        elif risk == 'Средний':
-            color = 'orange'
-        else:
-            color = 'green'
-
-        folium.Marker(
-            [lat, lon],
-            popup=name,
-            icon=folium.Icon(color=color, icon='info-sign')
-        ).add_to(m)
-
+        color = 'red' if risk == 'Высокий' else 'orange' if risk == 'Средний' else 'green'
+        folium.Marker([lat, lon], popup=name, icon=folium.Icon(color=color)).add_to(m)
     folium_static(m)
 except Exception as e:
     st.error("⚠️ Ошибка загрузки данных о участках ЛЭП. Проверьте файл `segments.csv`.")
